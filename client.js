@@ -56,7 +56,6 @@ window.__ModuleLoader__.load({
         tidyUp: '整理',
         more: '更多',
         dropCycle: '不能放到自己的子树里',
-        dropSelf: '不能放到自己',
         dropHere: '松开，成为它的子节点',
         dropFree: '拖到节点上可改变层级，松手停在空白处则保持位置',
         fromMessage: '对话内',
@@ -124,7 +123,6 @@ window.__ModuleLoader__.load({
         tidyUp: 'Tidy up',
         more: 'More',
         dropCycle: 'Cannot drop into its own subtree',
-        dropSelf: 'Cannot drop onto itself',
         dropHere: 'Release to make it a child here',
         dropFree: 'Drop on a node to re-parent, or on empty space to keep the position',
         fromMessage: 'in chat',
@@ -1564,12 +1562,13 @@ window.__ModuleLoader__.load({
           const under = document.elementFromPoint(event.clientX, event.clientY);
           const overEl = under?.closest?.('[data-node-id]');
           const overId = overEl?.getAttribute('data-node-id');
-          const isSelf = overId === drag.id;
-          const cycle = Boolean(overId) && !isSelf && wouldCycle(drag.id, overId);
-          const blockKind = cycle ? 'cycle' : isSelf ? 'self' : undefined;
+          // The dragged node is out of hit-testing, so it can never be the node
+          // under the pointer: there is no "onto itself" case to report. The
+          // only refusal is dropping a node inside its own subtree.
+          const cycle = Boolean(overId) && wouldCycle(drag.id, overId);
           drag.lastOver = overId;
-          drag.blocked = blockKind;
-          paintHint(event.clientX, event.clientY, blockKind, overId);
+          drag.blocked = cycle ? 'cycle' : undefined;
+          paintHint(event.clientX, event.clientY, drag.blocked, overId);
         }
       };
 
@@ -1603,7 +1602,7 @@ window.__ModuleLoader__.load({
           hint = document.createElement('div');
           host.appendChild(hint);
         }
-        const blockedText = blockKind === 'cycle' ? T('dropCycle') : blockKind ? T('dropSelf') : undefined;
+        const blockedText = blockKind === 'cycle' ? T('dropCycle') : undefined;
         const text = blockedText || (overId ? T('dropHere') : T('dropFree'));
         if (hint.textContent !== text) hint.textContent = text;
         const cls = blockKind ? 'dmm-drop dmm-drop-bad' : 'dmm-drop dmm-drop-ok';

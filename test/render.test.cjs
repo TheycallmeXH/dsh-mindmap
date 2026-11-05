@@ -406,8 +406,20 @@ async function main() {
   // and the hint must talk about the target instead.
   check(
     'the drag hint never says "itself" while dragging',
-    !/自己\\b|itself/i.test(textOf(host.querySelector('.dmm-drop'))),
+    // Note the single backslash: `\b` is a word boundary in the regex source,
+    // so this only rejects the phrase itself, not every occurrence of 自己
+    // (which legitimately appears in 自己的子树).
+    !/不能放到自己(?!的子树)/.test(textOf(host.querySelector('.dmm-drop'))),
     textOf(host.querySelector('.dmm-drop')),
+  );
+  // The runtime hint cannot exercise "onto itself": the dragged node is out of
+  // hit-testing, so a stubbed elementFromPoint never returns it. Assert the
+  // branch is gone from the source instead, which catches a reintroduction.
+  const clientSource = fs.readFileSync(path.join(here, '..', 'client.js'), 'utf8');
+  check(
+    'no "onto itself" refusal exists in the drop logic',
+    !/'self'/.test(clientSource) && !/dropSelf/.test(clientSource),
+    `selfBranch=${/'self'/.test(clientSource)} dropSelfKey=${/dropSelf/.test(clientSource)}`,
   );
   // Finish the drag on empty canvas: no move.
   await act(async () => {
