@@ -1332,6 +1332,15 @@ window.__ModuleLoader__.load({
       const { tree, structure, selected, onSelect, onEdit, onToggleFold, onMove, onKeyDown, search, editing, onCommitEdit, onCancelEdit } = props;
       /** Per-node free-position offsets, so a dragged node keeps where it was put. */
       const [offsets, setOffsets] = useState({});
+      // A structure change re-computes every position, so a free-drag offset
+      // recorded against the old layout would drag a node off its new branch.
+      // Clearing them is part of switching structure, not a separate action.
+      const previousStructure = useRef(structure);
+      useEffect(() => {
+        if (previousStructure.current === structure) return;
+        previousStructure.current = structure;
+        setOffsets({});
+      }, [structure]);
       // The computed tree position, then every pushed node shifted by its own
       // offset. A free drag writes that offset instead of fighting the layout.
       const base = useMemo(() => layoutMap(tree, structure), [tree, structure]);
