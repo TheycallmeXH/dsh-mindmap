@@ -1,0 +1,12 @@
+# Dependencies, if any are ever added
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+
+# Test scratch (render.test.cjs copies a fixture here)
+test/.tmp/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.log
