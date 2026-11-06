@@ -20,6 +20,7 @@
  * move the Obsidian plugin's “Convert to Markdown note” makes.
  */
 import { readFile, readdir, stat, writeFile, mkdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { inflateRawSync, zstdDecompressSync } from 'node:zlib';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
@@ -122,6 +123,19 @@ async function readSession(sessionId) {
   } catch {
     /* unreadable log: answer with an empty catalogue */
   }
+  // One file can be seen twice: a delivered file is also a written file when
+  // the Turn both created it and presented it, and an inline map can repeat
+  // across streamed assistant messages. Both carry the same id, so collapse
+  // them here and keep the latest sighting — otherwise the UI lists the same
+  // map several times.
+  if (record.docs.length > 1) {
+    const byId = new Map();
+    for (const doc of record.docs) {
+      const prev = byId.get(doc.id);
+      if (!prev || (doc.seq ?? 0) > (prev.seq ?? 0)) byId.set(doc.id, doc);
+    }
+    record.docs = [...byId.values()].sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0));
+  }
   logCache.set(file, record);
   while (logCache.size > LOG_CACHE_LIMIT) {
     const oldest = logCache.keys().next();
@@ -145,11 +159,14 @@ function collectEvent(record, event) {
     const messageId = typeof data?.message?.id === 'string' ? data.message.id : undefined;
     const content = data?.message?.content;
     if (!Array.isArray(content)) return;
-    content.forEach((block, index) => {
+    content.forEach((block) => {
       if (block?.type !== 'text' || typeof block.text !== 'string') return;
       for (const map of extractMarkdownMaps(block.text)) {
         record.docs.push({
-          id: `m:${event.seq}:${index}:${map.offset}`,
+          // Keyed by content, not by where it was found: the same outline can
+          // appear in a streamed message and in the settled message, and those
+          // are one map as far as the reader is concerned.
+          id: `m:${inlineFingerprint(map.markdown)}`,
           kind: 'inline',
           source: 'message',
           title: map.title,
@@ -408,6 +425,16 @@ export function looksLikeMindmap(tree) {
   const nodes = countNodes(tree);
   const depth = treeDepth(tree);
   return nodes >= 3 && depth >= 1;
+}
+
+/**
+ * A stable id for one inline map, derived from its text rather than from its
+ * position in the log. The same outline can surface in a streamed message and
+ * again in the settled one; hashing the content collapses those into a single
+ * entry.
+ */
+function inlineFingerprint(markdown) {
+  return createHash('sha1').update(String(markdown ?? '')).digest('hex').slice(0, 16);
 }
 
 /**
