@@ -230,6 +230,9 @@ function collectEvent(record, event) {
     if (ext !== '.md' && ext !== '.markdown') return;
     const text = typeof args?.content === 'string' ? args.content : typeof args?.new_string === 'string' ? args.new_string : undefined;
     if (typeof text !== 'string') return;
+    // Only a note that opts in counts. Shape alone listed ordinary structured
+    // notes (a README with headings, a round report with a list) as maps.
+    if (!declaresMindmap(text)) return;
     const tree = parseMarkdown(text, titleOf(path));
     if (!looksLikeMindmap(tree)) return;
     record.docs.push({
@@ -421,6 +424,32 @@ export function treeDepth(node, depth = 0) {
   return best;
 }
 
+/**
+ * Is this document an intentional mind map?
+ *
+ * Shape alone is not evidence: any note with a couple of headings and a list
+ * has "3 nodes and depth 1", which is why ordinary notes kept surfacing as
+ * maps. A document counts only when it opts in — a `mindmap: true` (or
+ * `mindmap-structure:` / `mindmap-theme:`) front matter key, or a ```mindmap
+ * fence somewhere inside it. Reading the front matter of the file itself is
+ * what separates "someone drew a map" from "someone wrote structured notes".
+ */
+export function declaresMindmap(text) {
+  const src = String(text ?? '');
+  const front = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/.exec(src);
+  if (front) {
+    // Only the front matter block, so a stray `mindmap: true` in prose cannot
+    // opt a note in.
+    if (/^\s*mindmap(-structure|-theme|-edge|-edge-dash|-edge-corner)?\s*:/im.test(front[1])) return true;
+  }
+  return /```(?:mindmap|gogoga-mindmap)\b/i.test(src);
+}
+
+/**
+ * A file is a map when it declares itself one and has a tree worth opening.
+ * Kept separate from `declaresMindmap` so the shape check still guards against
+ * a declared-but-empty map.
+ */
 export function looksLikeMindmap(tree) {
   const nodes = countNodes(tree);
   const depth = treeDepth(tree);
@@ -438,8 +467,12 @@ function inlineFingerprint(markdown) {
 }
 
 /**
- * Pull markdown mind maps out of free assistant text: either a ```mindmap
- * fence, or a run of headings/nested lists that reads as a hierarchy.
+ * Pull mind maps out of assistant text.
+ *
+ * Only an explicit ```mindmap / ```gogoga-mindmap fence counts. An earlier
+ * version also guessed from "a run of headings and nested lists", which
+ * surfaced ordinary structured answers as maps — so a turn-tail chip appeared
+ * under replies that had deliberately not been drawn as a map.
  */
 function extractMarkdownMaps(text) {
   const found = [];
@@ -451,43 +484,6 @@ function extractMarkdownMaps(text) {
     if (!looksLikeMindmap(tree)) continue;
     found.push({
       offset: match.index,
-      title: tree.text,
-      markdown: body,
-      nodes: countNodes(tree),
-      depth: treeDepth(tree),
-    });
-  }
-  if (found.length) return found;
-
-  // Plain headings + nested lists: keep the largest consecutive run.
-  const lines = String(text).split(/\r?\n/);
-  const runs = [];
-  let run = [];
-  let inCode = false;
-  for (const line of lines) {
-    if (/^\s*(```|~~~)/.test(line)) {
-      inCode = !inCode;
-      run = [];
-      continue;
-    }
-    if (inCode) continue;
-    if (HEADING.test(line) || ITEM.test(line) || MARKER_ONLY.test(line) || /^\s*$/.test(line)) {
-      run.push(line);
-    } else if (run.length) {
-      runs.push(run);
-      run = [];
-    }
-  }
-  if (run.length) runs.push(run);
-  for (const candidate of runs) {
-    const body = candidate.join('\n').trim();
-    if (!body) continue;
-    const nodes = body.split('\n').filter((line) => HEADING.test(line) || ITEM.test(line)).length;
-    if (nodes < 4) continue;
-    const tree = parseMarkdown(body, '思维导图');
-    if (!looksLikeMindmap(tree)) continue;
-    found.push({
-      offset: text.indexOf(body.slice(0, 40)),
       title: tree.text,
       markdown: body,
       nodes: countNodes(tree),
@@ -645,8 +641,13 @@ async function readDocFile(path) {
       root: sheets[0].root,
     };
   } else {
-    const tree = parseMarkdown(bytes.toString('utf8'), titleOf(path));
-    doc = { format: 'markdown', readOnly: false, root: tree };
+    const text = bytes.toString('utf8');
+    // Opening a note in the map view is an explicit act, but the *listing* must
+    // not imply every .md is a map. Refusing here keeps the browser and the
+    // turn-tail chips honest about what counted, while still letting the user
+    // open any file they deliberately pick.
+    const tree = parseMarkdown(text, titleOf(path));
+    doc = { format: 'markdown', readOnly: false, root: tree, declared: declaresMindmap(text) };
   }
   const record = { mtimeMs: info.mtimeMs, size: info.size, doc: { ...doc, path, title: titleOf(path) } };
   docCache.set(path, record);

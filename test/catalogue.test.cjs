@@ -43,6 +43,46 @@ async function main() {
     check('unknown session has no docs', (body.docs ?? []).length === 0, `${(body.docs ?? []).length}`);
   });
 
+  // What counts as a mind map is a front-matter decision, not a shape guess.
+  // An ordinary note with a heading and a list has "3 nodes and depth 1" too,
+  // and allowing that made round reports show up as maps.
+  const { declaresMindmap, looksLikeMindmap, parseMarkdown } = await import(hostPath);
+
+  const roundNote = [
+    '# ROUND 13 记录',
+    '',
+    '性能 mean 6.63ms / p99 8 写入。',
+    '',
+    '## 实测截取',
+    '',
+    '- 抓到帧数 120',
+    '- 平均 6.63ms',
+    '',
+    '## 结论',
+    '',
+    '- 写入正常',
+    '',
+  ].join('\n');
+  check(
+    'an ordinary structured note is not a map',
+    declaresMindmap(roundNote) === false,
+    `declares=${declaresMindmap(roundNote)}`,
+  );
+  check(
+    'that note still has map-like shape (so shape alone would have accepted it)',
+    looksLikeMindmap(parseMarkdown(roundNote, 'x')) === true,
+    'shape check became the discriminator again',
+  );
+
+  const realMap = ['---', 'mindmap: true', '---', '', '# 项目结构', '', '## 前端', '', '- 渲染层', '  - 画布', ''].join('\n');
+  check('a note declaring mindmap: true is a map', declaresMindmap(realMap) === true);
+
+  const fencedMap = ['# 笔记', '', '```mindmap', '# 中心', '## 分支', '```', ''].join('\n');
+  check('a note containing a mindmap fence is a map', declaresMindmap(fencedMap) === true);
+
+  const strayProse = ['# 标题', '', '这里提到 mindmap: true 只是举例。', ''].join('\n');
+  check('a mention in prose does not opt a note in', declaresMindmap(strayProse) === false);
+
   // Deduplication is a property of the parser, not of a particular log. Assert
   // the observable rule on a real log when one exists: no duplicate ids.
   const { readdirSync } = require('node:fs');

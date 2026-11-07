@@ -2788,9 +2788,13 @@ window.__ModuleLoader__.load({
       const docs = useMemo(() => {
         if (!catalogue.docs.length) return [];
         return catalogue.docs.filter((entry) => {
-          if (!Number.isFinite(entry.seq)) return false;
-          if (typeof turnNumber === 'number' && typeof entry.turn === 'number') return entry.turn === turnNumber;
-          return typeof seq === 'number' ? entry.seq <= seq && entry.seq > seq - 4000 : false;
+          // A chip belongs to the Turn that produced it and nowhere else. Strict
+          // equality on the turn number is the whole rule; the seq window is a
+          // fallback only for a map whose turn could not be read, and it stays
+          // narrow so it cannot reach into a neighbouring Turn.
+          if (typeof turnNumber === 'number') return entry.turn === turnNumber;
+          if (typeof seq !== 'number' || !Number.isFinite(entry.seq)) return false;
+          return entry.seq <= seq && entry.seq > seq - 200;
         });
       }, [catalogue.docs, seq, turnNumber]);
 
